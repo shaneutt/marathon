@@ -36,6 +36,14 @@ object StateAuthority {
             frame.lens(_.rootGroup).modify(_.withoutApp(update.ref))
         }
     }
+    // bump the frame version
+  }
+
+  def incomingCommand(command: StateCommand, requestId: Long) = {
+    update(..., command) match {
+      case Left(failure) => // issue failure for requestId
+      case Right(result) =>
+        val nextFrame = applyTransitions(frame, result.stateTransitions)
   }
 
   def update(frame: Frame, command: StateCommand): Either[Rejection, Result] = {
