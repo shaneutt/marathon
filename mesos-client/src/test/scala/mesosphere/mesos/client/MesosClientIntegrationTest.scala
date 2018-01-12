@@ -70,7 +70,7 @@ class MesosClientIntegrationTest extends AkkaUnitTest
     }
   }
 
-  "Mesos client should successfully receive heartbeats" in withFixture() { f =>
+  "Mesos client should successfully receive heartbeat" in withFixture() { f =>
     When("a framework subscribes")
     val res: Future[Seq[Event]] = f.client.mesosSource.take(2).runWith(Sink.seq)
 
