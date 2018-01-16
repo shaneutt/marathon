@@ -9,7 +9,7 @@ import com.typesafe.scalalogging.StrictLogging
 import mesosphere.AkkaUnitTest
 import mesosphere.marathon.IntegrationTest
 import mesosphere.marathon.integration.setup.MesosClusterTest
-import mesosphere.mesos.conf.MesosConf
+import mesosphere.mesos.conf.MesosClientConf
 import org.apache.mesos.v1.mesos.{Filters, FrameworkID, FrameworkInfo}
 import org.apache.mesos.v1.scheduler.scheduler.Event
 import org.scalatest.Inside
@@ -141,7 +141,7 @@ class MesosClientIntegrationTest extends AkkaUnitTest
     val mesosHost = mesosUrl.getHost
     val mesosPort = mesosUrl.getPort
 
-    val conf = new MesosConf(List("--master", s"${mesosUrl.getHost}:${mesosUrl.getPort}"))
+    val conf = new MesosClientConf(master = s"${mesosUrl.getHost}:${mesosUrl.getPort}")
     val client = new MesosClient(conf, frameworkInfo)
   }
 }

@@ -15,16 +15,14 @@ import akka.{Done, NotUsed}
 import com.google.protobuf
 import com.typesafe.scalalogging.StrictLogging
 import mesosphere.mesos.client.MesosClient.{ MesosRedicrectException, ProtobufMediaType, MesosStreamIdHeaderName }
-import mesosphere.mesos.conf.MesosConf
+import mesosphere.mesos.conf.MesosClientConf
 import org.apache.mesos.v1.mesos._
 import org.apache.mesos.v1.scheduler.scheduler.Call.{Accept, Acknowledge, Decline, Kill, Message, Reconcile, Revive}
 import org.apache.mesos.v1.scheduler.scheduler.{Call, Event}
-
-import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future, Promise}
 
 class MesosClient(
-    conf: MesosConf,
+    conf: MesosClientConf,
     frameworkInfo: FrameworkInfo)(
     implicit val system: ActorSystem,
     implicit val materializer: ActorMaterializer,
@@ -174,16 +172,16 @@ class MesosClient(
       .via(connectionHandler)
 
     connectionSource(context.get().host, context.get().port)
-      .recoverWithRetries(conf.redirectRetires(), {
+      .recoverWithRetries(conf.redirectRetires, {
         case MesosRedicrectException(_) => connectionSource(context.get().host, context.get().port)
       })
-      .buffer(conf.sourceBufferSize(), overflowStrategy)
+      .buffer(conf.sourceBufferSize, overflowStrategy)
       .via(dataBytesExtractor)
       .via(recordIoScanner)
       .via(eventDeserializer)
       .via(subscribedHandler)
       .via(log("Received mesos Event: "))
-      .idleTimeout(conf.idleTimeout().seconds)
+      .idleTimeout(conf.idleTimeout)
   }
 
   override lazy val (killSwitch: UniqueKillSwitch, mesosSource: Source[Event, NotUsed]) = source
