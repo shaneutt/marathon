@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
+import akka.http.scaladsl.model.MediaType.Compressible
 import akka.http.scaladsl.model._
 import akka.stream._
 import akka.stream.alpakka.recordio.scaladsl.RecordIOFraming
@@ -13,8 +14,7 @@ import akka.util.ByteString
 import akka.{Done, NotUsed}
 import com.google.protobuf
 import com.typesafe.scalalogging.StrictLogging
-import mesosphere.mesos.client.MesosClient.MesosRedicrectException
-import mesosphere.mesos.client.MesosStreamSupport._
+import mesosphere.mesos.client.MesosClient.{ MesosRedicrectException, ProtobufMediaType, MesosStreamIdHeaderName }
 import mesosphere.mesos.conf.MesosConf
 import org.apache.mesos.v1.mesos._
 import org.apache.mesos.v1.scheduler.scheduler.Call.{Accept, Acknowledge, Decline, Kill, Message, Reconcile, Revive}
@@ -145,8 +145,10 @@ class MesosClient(
           // Update the context with the new leader's host and port and throw an exception that is handled in the
           // next `recoverWith` stage.
           context.updateAndGet(c => c.copy(url = leader))
+          response.discardEntityBytes()
           throw new MesosRedicrectException(leader)
         case _ =>
+          response.discardEntityBytes()
           throw new IllegalArgumentException(s"Mesos server error: $response")
       }
     }
@@ -175,13 +177,13 @@ class MesosClient(
       .recoverWithRetries(conf.redirectRetires(), {
         case MesosRedicrectException(_) => connectionSource(context.get().host, context.get().port)
       })
-      .idleTimeout(conf.idleTimeout().seconds)
       .buffer(conf.sourceBufferSize(), overflowStrategy)
       .via(dataBytesExtractor)
       .via(recordIoScanner)
       .via(eventDeserializer)
       .via(subscribedHandler)
       .via(log("Received mesos Event: "))
+      .idleTimeout(conf.idleTimeout().seconds)
   }
 
   override lazy val (killSwitch: UniqueKillSwitch, mesosSource: Source[Event, NotUsed]) = source
@@ -259,6 +261,7 @@ class MesosClient(
     response status match {
       case status if status.isFailure() =>
         logger.info(s"A request to mesos failed with response: ${response}")
+        response.discardEntityBytes()
         throw new IllegalStateException(s"Failed to send a call to mesos")
       case _ =>
         logger.debug(s"Mesos call response: $response")
@@ -273,7 +276,7 @@ class MesosClient(
     .map(bytes => HttpRequest(HttpMethods.POST,
                               uri = Uri(s"${context.get().url}/api/v1/scheduler"),
                               entity = HttpEntity(ProtobufMediaType, bytes),
-                              headers = List(MesosStreamIdHeader(context.get().streamId.getOrElse(throw new IllegalStateException("MesosStreamId not set.")))))
+                              headers = List(MesosClient.MesosStreamIdHeader(context.get().streamId.getOrElse(throw new IllegalStateException("MesosStreamId not set.")))))
     )
 
   private val callEnhancer: Flow[Call, Call, NotUsed] = Flow[Call]
@@ -302,7 +305,7 @@ class MesosClient(
 trait MesosApi {
 
   /**
-    * First call to this method will initialize the connection to mesos and return a `Source[String, NotUser]` with
+    * First call to this method will initialize the connection to mesos and return a `Source[String, NotUsed]` with
     * mesos `Event`s. All subsequent calls will return the previously created event source.
     * The connection is initialized with a `POST /api/v1/scheduler` with the framework info in the body. The request
     * is answered by a `SUBSCRIBED` event which contains `MesosStreamId` header. This is reused by all later calls to
@@ -537,4 +540,8 @@ trait MesosApi {
 
 object MesosClient {
   case class MesosRedicrectException(leader: URI) extends Exception(s"New mesos leader available at $leader")
+
+  val MesosStreamIdHeaderName = "Mesos-Stream-Id"
+  def MesosStreamIdHeader(streamId: String) = headers.RawHeader("Mesos-Stream-Id", streamId)
+  val ProtobufMediaType: MediaType.Binary = MediaType.applicationBinary("x-protobuf", Compressible)
 }

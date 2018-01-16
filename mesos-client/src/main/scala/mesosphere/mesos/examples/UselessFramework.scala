@@ -45,7 +45,7 @@ object UselessFramework extends App with StrictLogging {
         val offerIds = event.offers.get.offers.map(_.id).toList
 
         Source(offerIds)
-          .map{ oId => logger.info(s"Declining offer with id = ${oId.value}"); oId }  // Decline all offers
+          .via{client.log(s"Declining offer with id = ")}  // Decline all offers
           .map(oId => client.decline(
               offerIds = Seq(oId),
               filters = Some(Filters(Some(5.0f)))
