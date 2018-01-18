@@ -5,7 +5,9 @@ libraryDependencies ++= Seq(
 
   "com.github.julien-truffaut" %%  "monocle-core"  % monocleVersion,
   "com.github.julien-truffaut" %%  "monocle-macro" % monocleVersion,
-  "com.github.julien-truffaut" %%  "monocle-law"   % monocleVersion % "test"
+  "com.github.julien-truffaut" %%  "monocle-law"   % monocleVersion % "test",
+
+  "org.scalatest" %% "scalatest" % "3.0.4" % "test"
 )
 
 scalaVersion := "2.12.4"

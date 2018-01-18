@@ -1,0 +1,4 @@
+[ ] Update app definition from command
+[ ] Propagate update to scheduler loop after persistence
+[ ] Add instance using command
+  [ ] Implement rejection logic (app doesn't exist)

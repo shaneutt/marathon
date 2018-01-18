@@ -6,8 +6,6 @@ import monocle.std.map._
 import monocle.macros.GenLens
 import monocle.function.all._
 
-object RootGroup {
-}
 case class RootGroup(apps: Map[Path, Map[Variant, RunSpec]]) {
   import RootGroup._
   val appsLens = GenLens[RootGroup](_.apps)
@@ -30,4 +28,8 @@ case class RootGroup(apps: Map[Path, Map[Variant, RunSpec]]) {
       set(Some(runSpecVariants)).
       apply(this)
   }
+}
+
+object RootGroup {
+  val empty: RootGroup = RootGroup(apps = Map.empty)
 }
