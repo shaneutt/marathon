@@ -3,11 +3,42 @@ package repository
 
 import akka.stream.OverflowStrategy
 import akka.stream.scaladsl.{ Keep, Sink, Source }
-import mesosphere.marathon.state.RunSpec
+import java.util.UUID
+import mesosphere.marathon.state.{ RunSpec, RunSpecRef, Instance }
 import org.scalatest.Inside
 
 class StateAuthorityTest extends AkkaUnitTestLike with Inside {
-  "lol" in {
+  val instanceId = UUID.fromString("deadbeef-c011-0123-4567-89abcdefffff")
+  "invalid commands are rejected right away" in {
+    val requestId = 1011
+    Given("a fresh instance of Marathon")
+    val (input, result) = Source.queue[StateAuthorityInputEvent](16, OverflowStrategy.fail)
+      .via(StateAuthority.commandProcessorFlow)
+      .toMat(Sink.queue())(Keep.both)
+      .run
+
+    When("I submit a command to add a task for a RunSpec that does not exist")
+    input.offer(CommandRequest(requestId,
+      StateCommand.AddInstance(Instance(instanceId, RunSpecRef("/lol", "blue")))))
+
+    And("the failure gets published")
+    inside(result.pull().futureValue) {
+      case Some(result: Effect.PublishResult) =>
+        result.requestId shouldBe requestId
+        inside(result.result) {
+          case Left(rejection) =>
+            rejection.reason shouldBe (s"No runSpec /lol#blue")
+        }
+    }
+
+    When("we close the stream")
+    input.complete()
+
+    Then("no further events are generated")
+    result.pull().futureValue shouldBe None
+  }
+
+  "the events propagate and the request is acknowledged after persistence" in {
     val requestId = 1011
     Given("a fresh instance of Marathon")
     val (input, result) = Source.queue[StateAuthorityInputEvent](16, OverflowStrategy.fail)

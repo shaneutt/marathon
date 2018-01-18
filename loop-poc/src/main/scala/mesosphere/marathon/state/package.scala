@@ -15,12 +15,13 @@ package state {
 
   case class RunSpecRef(
     id: String,
-    variant: Variant)
+    variant: Variant) {
+    override def toString(): String = s"${id}#${variant}"
+  }
 
   case class Instance(
-    runSpec: RunSpecRef,
-    agentId: String,
-    taskId: String)
+    instanceId: UUID,
+    runSpec: RunSpecRef)
 
   case class DeploymentPolicy(
     id: UUID,

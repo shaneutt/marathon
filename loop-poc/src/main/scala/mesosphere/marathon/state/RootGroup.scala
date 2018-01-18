@@ -10,6 +10,12 @@ case class RootGroup(apps: Map[Path, Map[Variant, RunSpec]]) {
   import RootGroup._
   val appsLens = GenLens[RootGroup](_.apps)
 
+  def get(ref: RunSpecRef): Option[RunSpec] =
+    for {
+      variants <- apps.get(ref.id)
+      runSpec <- variants.get(ref.variant)
+    } yield runSpec
+
   def withoutApp(ref: RunSpecRef): RootGroup = {
     val runSpecVariants =
       apps.getOrElse(ref.id, Map.empty) - ref.variant
