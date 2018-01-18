@@ -35,7 +35,7 @@ class MesosClient(
   val contextPromise = Promise[MesosConnectionContext]()
 
   /**
-    Mesos source is an akka-stream `Source[Event, NotUsed]` that frameworks can attach to, to receive mesos event.
+    Mesos source is an akka-stream `Source[Event, UniqueKillSwitch]` that frameworks can attach to, to receive mesos event.
     Basic flow visualized looks like following
 
      ------------
@@ -74,11 +74,7 @@ class MesosClient(
      --------------
           |
           v
-     --------------
-    | BroadcastHub | (7)
-     --------------
-      |  |  |  |  |
-      v  v  v  v  v
+
 
     1. Http Connection mesos-v1-client uses akka-http low-level `Http.outgoingConnection()` to `POST` a
        [SUBSCRIBE](http://mesos.apache.org/documentation/latest/scheduler-http-api/#subscribe-1) request to mesos `api/v1/scheduler`
@@ -99,8 +95,6 @@ class MesosClient(
        [scalapb](https://scalapb.github.io/) library to parse the extracted RecordIO frame from the previous stage into a mesos
        [Event](https://github.com/apache/mesos/blob/master/include/mesos/scheduler/scheduler.proto#L36)
     6. Subscribed Handler parses the `SUBSCRIBED` event and updates the connection context with the returned `frameworkId`.
-    7. BroadcastHub at the end the flow is going through a broadcast hub. This allows for a dynamic "fan-out" streaming of events and avoids
-       making multiple upstream connections to mesos when the source is materialized by multiple event consumers.
 
     Note: _Connection Handler_ updates the _connection context_ object with current mesos leader `host` and `port` along with `Mesos-Stream-Id`
     header value. These settings are used by mesos sink when sending calls to mesos. The same applies to _Subscribed Handler_ which saves
@@ -110,7 +104,7 @@ class MesosClient(
     */
   def log[T](prefix: String): Flow[T, T, NotUsed] = Flow[T].map{ e => logger.info(s"$prefix$e"); e }
 
-  lazy val source: Source[Event, NotUsed] = {
+  val mesosSource: Source[Event, UniqueKillSwitch] = {
 
     val body = subscribe(frameworkInfo).toByteArray
 
@@ -171,7 +165,7 @@ class MesosClient(
       .via(log("HttpResponse: "))
       .via(connectionHandler)
 
-    connectionSource(context.get().host, context.get().port)
+    val source = connectionSource(context.get().host, context.get().port)
       .recoverWithRetries(conf.redirectRetires, {
         case MesosRedicrectException(_) => connectionSource(context.get().host, context.get().port)
       })
@@ -182,12 +176,10 @@ class MesosClient(
       .via(subscribedHandler)
       .via(log("Received mesos Event: "))
       .idleTimeout(conf.idleTimeout)
-  }
+      .viaMat(KillSwitches.single)(Keep.right)
 
-  override lazy val (killSwitch: UniqueKillSwitch, mesosSource: Source[Event, NotUsed]) = source
-    .viaMat(KillSwitches.single)(Keep.right)
-    .toMat(BroadcastHub.sink)(Keep.both)
-    .run()
+    source
+  }
 
 
   /**
@@ -318,8 +310,13 @@ trait MesosApi {
     * ```
     *
     * http://mesos.apache.org/documentation/latest/scheduler-http-api/#subscribe-1
+    *
+    * A materialized value of the source is a kill switch. Calling shutdown()` or `abort()` on it will close the connection to mesos.
+    * Note that depending on `failoverTimeout` provided with SUBSCRIBED call mesos could start killing tasks and
+    * executors started by the framework. Make sure to set `failoverTimeout` appropriately. See `teardown()` method
+    * for another way to shutdown a framework.
     */
-  def mesosSource: Source[Event, NotUsed]
+  def mesosSource: Source[Event, UniqueKillSwitch]
 
   /**
     * Sink for mesos calls. Multiple publishers can materialize this sink to send mesos `Call`s. Every `Call` Every call is
@@ -332,13 +329,6 @@ trait MesosApi {
     */
   def mesosSink: Sink[Call, NotUsed]
 
-  /**
-    * A kill switch for the mesos source. Calling `shutdown()` or `abort()` on it will close the connection to mesos.
-    * Note that depending on `failoverTimeout` provided with SUBSCRIBED call mesos could start killing tasks and
-    * executors started by the framework. Make sure to set `failoverTimeout` appropriately. See `teardown()` method
-    * for another way to shutdown a framework.
-    */
-  val killSwitch: UniqueKillSwitch
 
   /** ***************************************************************************
     * Helper methods to create mesos `Call`s
